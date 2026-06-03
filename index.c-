@@ -1,0 +1,290 @@
+#include <iostream>
+#include <vector>
+#include <cstdlib>
+#include <ctime>
+#include <windows.h> // Necesario para colores y Sleep en Windows
+#include <conio.h>   // Para _kbhit() y _getch()
+
+using namespace std;
+
+// --- CONFIGURACIÓN DE COLORES Y PANTALLA ---
+void setColor(int color) {
+    SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), color);
+}
+
+void gotoXY(int x, int y) {
+    COORD coord;
+    coord.X = x;
+    coord.Y = y;
+    SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), coord);
+}
+
+void ocultarCursor() {
+    CONSOLE_CURSOR_INFO cursor;
+    cursor.dwSize = 100;
+    cursor.bVisible = FALSE;
+    SetConsoleCursorInfo(GetStdHandle(STD_OUTPUT_HANDLE), &cursor);
+}
+
+// Constantes de color
+const int VERDE = 10;
+const int ROJO = 12;
+const int AMARILLO = 14;
+const int BLANCO = 15;
+const int GRIS = 8;
+const int CYAN = 11;
+
+// --- CLASES DEL JUEGO ---
+
+class Proyectil {
+public:
+    int x, y;
+    bool activo;
+
+    Proyectil(int _x, int _y) : x(_x), y(_y), activo(true) {}
+
+    void mover() {
+        x++;
+        if (x > 50) activo = false; // Sale de la pantalla
+    }
+
+    void dibujar() {
+        gotoXY(x, y);
+        setColor(AMARILLO);
+        cout << "-";
+    }
+};
+
+class Planta {
+public:
+    int x, y;
+    int vida;
+    int tiempo_recarga;
+    int contador;
+    char tipo; // 'G' (Girasol), 'L' (Lanzaguisantes)
+
+    Planta(int _x, int _y, char _tipo) : x(_x), y(_y), tipo(_tipo), contador(0) {
+        if (tipo == 'G') {
+            vida = 50;
+            tiempo_recarga = 60; // Genera sol cada 60 ticks
+        } else {
+            vida = 80;
+            tiempo_recarga = 30; // Dispara cada 30 ticks
+        }
+    }
+
+    void actualizar(int& soles, vector<Proyectil>& proyectiles) {
+        contador++;
+        if (tipo == 'G' && contador >= tiempo_recarga) {
+            soles += 25;
+            contador = 0;
+            // Efecto visual
+            gotoXY(x, y - 1);
+            setColor(AMARILLO);
+            cout << "+25";
+            Sleep(200);
+            gotoXY(x, y - 1);
+            cout << "   ";
+        } else if (tipo == 'L' && contador >= tiempo_recarga) {
+            proyectiles.push_back(Proyectil(x + 2, y));
+            contador = 0;
+        }
+    }
+
+    void dibujar() {
+        gotoXY(x, y);
+        if (tipo == 'G') {
+            setColor(AMARILLO);
+            cout << "G"; // Girasol
+        } else {
+            setColor(VERDE);
+            cout << "P"; // PeaShooter
+        }
+    }
+};
+
+class Zombie {
+public:
+    int x, y;
+    int vida;
+    int velocidad;
+    bool vivo;
+
+    Zombie(int _y) {
+        y = _y;
+        x = 60; // Empieza a la derecha
+        vida = 100;
+        velocidad = 1;
+        vivo = true;
+    }
+
+    void mover() {
+        if (x > 2) x -= velocidad; // Moverse a la izquierda
+    }
+
+    void recibirDaño(int dmg) {
+        vida -= dmg;
+        if (vida <= 0) vivo = false;
+    }
+
+    void dibujar() {
+        gotoXY(x, y);
+        setColor(ROJO);
+        cout << "Z";
+    }
+};
+
+// --- FUNCIONES PRINCIPALES ---
+
+void dibujarMapa(int soles, int puntaje) {
+    system("cls");
+    setColor(BLANCO);
+    cout << "=== PLANTS VS ZOMBIES (C++ CONSOLE) ===" << endl;
+    cout << "Soles: " << soles << " | Zombis Eliminados: " << puntaje << endl;
+    cout << "[1] Girasol (50 Soles)  [2] Lanzaguisantes (100 Soles)" << endl;
+    cout << "----------------------------------------" << endl;
+    
+    // Dibujar bordes del área de juego
+    for(int i=0; i<5; i++) {
+        gotoXY(0, 5 + i);
+        cout << "|";
+        gotoXY(60, 5 + i);
+        cout << "|";
+    }
+}
+
+int main() {
+    // Configuración inicial
+    srand(time(NULL));
+    ocultarCursor();
+    bool juegoTerminado = false;
+    
+    // Variables de estado
+    int soles = 100;
+    int puntaje = 0;
+    int frame = 0;
+    
+    // Contenedores
+    vector<Planta> plantas;
+    vector<Zombie> zombis;
+    vector<Proyectil> proyectiles;
+
+    while (!juegoTerminado) {
+        dibujarMapa(soles, puntaje);
+
+        // --- LÓGICA DE SPAWN DE ZOMBIS ---
+        // Cada 200 frames aparece un zombi en una fila aleatoria (1-5)
+        if (frame % 200 == 0) {
+            int fila = rand() % 5;
+            zombis.push_back(Zombie(5 + fila));
+        }
+
+        // --- ACTUALIZAR Y DIBUJAR ENTIDADES ---
+        
+        // Plantas
+        for (auto& p : plantas) {
+            p.actualizar(soles, proyectiles);
+            p.dibujar();
+        }
+
+        // Proyectiles
+        for (auto& b : proyectiles) {
+            if (b.activo) {
+                b.mover();
+                b.dibujar();
+            }
+        }
+
+        // Zombis
+        for (auto& z : zombis) {
+            if (z.vivo) {
+                z.mover();
+                z.dibujar();
+
+                // Verificar si el zombi llegó a la casa (Game Over)
+                if (z.x <= 2) {
+                    juegoTerminado = true;
+                    gotoXY(20, 10);
+                    setColor(ROJO);
+                    cout << "¡LOS ZOMBIS COMIERON TU CEREBRO!";
+                    Sleep(3000);
+                }
+
+                // Colisión Zombi vs Planta
+                for (auto& p : plantas) {
+                    if (z.x == p.x && z.y == p.y) {
+                        p.vida -= 2; // Zombi come planta
+                        if (p.vida <= 0) {
+                            // Planta muere (borrado simplificado para el ejemplo)
+                            // En un código real, la eliminaríamos del vector
+                            gotoXY(p.x, p.y);
+                            cout << " "; 
+                            p.x = -100; // Mover fuera de pantalla para ignorar
+                        }
+                    }
+                }
+
+                // Colisión Zombi vs Proyectil
+                for (auto& b : proyectiles) {
+                    if (b.activo && b.x == z.x && b.y == z.y) {
+                        z.recibirDaño(20);
+                        b.activo = false; // Bala desaparece
+                        gotoXY(b.x, b.y);
+                        cout << " "; // Borrar bala
+                    }
+                }
+            }
+        }
+
+        // Limpieza de muertos (opcional, aquí solo los ocultamos lógicamente)
+        // Nota: Para simplificar, no hacemos "erase" del vector en cada loop para evitar errores de iteración en este ejemplo básico.
+
+        // --- INPUT DEL JUGADOR ---
+        if (_kbhit()) {
+            char tecla = _getch();
+            int fila = -1;
+            
+            // Mapeo simple de teclado 1-5 para filas
+            if (tecla == '1') fila = 0; // Fila visual 5
+            else if (tecla == '2') fila = 1; // Fila visual 6, etc.
+            else if (tecla == '3') fila = 2;
+            else if (tecla == '4') fila = 3;
+            else if (tecla == '5') fila = 4;
+
+            if (fila != -1) {
+                gotoXY(10, 12);
+                setColor(CYAN);
+                cout << "Fila seleccionada: " << fila + 1 << ". ¿Qué planta? (G:50, L:100): ";
+                char opcion = _getch();
+                
+                int coordX = 10; // Fila donde se planta (ejemplo fijo)
+                int coordY = 5 + fila;
+
+                // Verificar si la casilla está libre
+                bool ocupado = false;
+                for (auto& p : plantas) {
+                    if (p.x == coordX && p.y == coordY) ocupado = true;
+                }
+
+                if (!ocupado) {
+                    if (opcion == 'g' || opcion == 'G') {
+                        if (soles >= 50) {
+                            plantas.push_back(Planta(coordX, coordY, 'G'));
+                            soles -= 50;
+                        }
+                    } else if (opcion == 'l' || opcion == 'L') {
+                        if (soles >= 100) {
+                            plantas.push_back(Planta(coordX, coordY, 'L'));
+                            soles -= 100;
+                        }
+                    }
+                }
+            }
+        }
+
+        frame++;
+        Sleep(50); // Controlar velocidad del juego (aprox 20 FPS)
+    }
+
+    return 0;
+}
