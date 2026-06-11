@@ -1,1393 +1,318 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Plantas vs Zombis</title>
-    <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            background: #1a0e05;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            overflow: hidden;
-            font-family: 'Nunito', sans-serif;
-        }
-        canvas {
-            border-radius: 6px;
-            box-shadow: 0 0 60px rgba(76,175,80,0.2), 0 0 120px rgba(0,0,0,0.6);
-            max-width: 98vw;
-            max-height: 97vh;
-            cursor: default;
-        }
-    </style>
-</head>
-<body>
-<canvas id="c"></canvas>
-<script>
-// ============================
-// INICIALIZACIÓN DEL CANVAS
-// ============================
-const canvas = document.getElementById('c');
-const ctx = canvas.getContext('2d');
-const W = 1000, H = 650;
-canvas.width = W;
-canvas.height = H;
+#include <iostream>
+#include <vector>
+#include <cstdlib>
+#include <ctime>
+#include <algorithm>
+#include <windows.h>
+#include <conio.h>
 
-// ============================
-// CONSTANTES DEL JUEGO
-// ============================
-const ROWS = 5, COLS = 9;
-const CELL_W = 82, CELL_H = 100;
-const GRID_X = 80, GRID_Y = 95;
-const UI_H = 88;
+using namespace std;
 
-const PLANT_DATA = {
-    sunflower:   { cost: 50,  hp: 100, interval: 300, label: 'Girasol',           icon: 'G' },
-    peashooter:  { cost: 100, hp: 100, interval: 85,  label: 'Lanzaguisantes',    icon: 'P' },
-    wallnut:     { cost: 50,  hp: 400, interval: 999, label: 'Nuez',              icon: 'N' }
+// --- CONFIGURACIÓN DE COLORES Y PANTALLA ---
+void setColor(int color) {
+    SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), color);
+}
+
+void gotoXY(int x, int y) {
+    COORD coord;
+    coord.X = x;
+    coord.Y = y;
+    SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), coord);
+}
+
+void ocultarCursor() {
+    CONSOLE_CURSOR_INFO cursor;
+    cursor.dwSize = 100;
+    cursor.bVisible = FALSE;
+    SetConsoleCursorInfo(GetStdHandle(STD_OUTPUT_HANDLE), &cursor);
+}
+
+// Constantes de color
+const int VERDE = 10;
+const int ROJO = 12;
+const int AMARILLO = 14;
+const int BLANCO = 15;
+const int CYAN = 11;
+const int MARRON = 6;
+
+// --- CLASES DEL JUEGO ---
+
+class Proyectil {
+public:
+    int x, y;
+    int prevX, prevY;
+    bool activo;
+
+    Proyectil(int _x, int _y) : x(_x), y(_y), prevX(_x), prevY(_y), activo(true) {}
+
+    void mover() {
+        prevX = x; prevY = y;
+        x += 2; // Velocidad de la bala
+        if (x > 60) activo = false;
+    }
+
+    void borrar() {
+        gotoXY(prevX, prevY); cout << " ";
+    }
+
+    void dibujar() {
+        gotoXY(x, y);
+        setColor(AMARILLO);
+        cout << "-";
+    }
 };
 
-// ============================
-// SISTEMA DE AUDIO PROCEDURAL
-// ============================
-let audioCtx = null;
-function ensureAudio() {
-    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-}
+class Planta {
+public:
+    int x, y;
+    int vida;
+    int tiempo_recarga;
+    int contador;
+    char tipo;
 
-function playSound(type) {
-    if (!audioCtx) return;
-    try {
-        const t = audioCtx.currentTime;
-        const osc = audioCtx.createOscillator();
-        const g = audioCtx.createGain();
-        osc.connect(g);
-        g.connect(audioCtx.destination);
-        switch(type) {
-            case 'shoot':
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(900, t);
-                osc.frequency.exponentialRampToValueAtTime(300, t+0.08);
-                g.gain.setValueAtTime(0.06, t);
-                g.gain.exponentialRampToValueAtTime(0.001, t+0.08);
-                osc.start(t); osc.stop(t+0.08);
-                break;
-            case 'plant':
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(500, t);
-                osc.frequency.exponentialRampToValueAtTime(900, t+0.12);
-                g.gain.setValueAtTime(0.08, t);
-                g.gain.exponentialRampToValueAtTime(0.001, t+0.15);
-                osc.start(t); osc.stop(t+0.15);
-                break;
-            case 'sun':
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(1200, t);
-                osc.frequency.exponentialRampToValueAtTime(1600, t+0.08);
-                g.gain.setValueAtTime(0.05, t);
-                g.gain.exponentialRampToValueAtTime(0.001, t+0.1);
-                osc.start(t); osc.stop(t+0.1);
-                break;
-            case 'hit':
-                osc.type = 'sawtooth';
-                osc.frequency.setValueAtTime(200, t);
-                osc.frequency.exponentialRampToValueAtTime(80, t+0.06);
-                g.gain.setValueAtTime(0.04, t);
-                g.gain.exponentialRampToValueAtTime(0.001, t+0.06);
-                osc.start(t); osc.stop(t+0.06);
-                break;
-            case 'mower':
-                osc.type = 'sawtooth';
-                osc.frequency.setValueAtTime(120, t);
-                osc.frequency.linearRampToValueAtTime(200, t+0.5);
-                g.gain.setValueAtTime(0.08, t);
-                g.gain.linearRampToValueAtTime(0.001, t+0.6);
-                osc.start(t); osc.stop(t+0.6);
-                break;
-            case 'gameover':
-                osc.type = 'sawtooth';
-                osc.frequency.setValueAtTime(400, t);
-                osc.frequency.exponentialRampToValueAtTime(60, t+1);
-                g.gain.setValueAtTime(0.1, t);
-                g.gain.linearRampToValueAtTime(0.001, t+1);
-                osc.start(t); osc.stop(t+1);
-                break;
-        }
-    } catch(e) {}
-}
-
-// ============================
-// ESTADO DEL JUEGO
-// ============================
-let S = {};
-function resetState() {
-    S = {
-        screen: 'menu',
-        sun: 150,
-        score: 0,
-        frame: 0,
-        selectedPlant: null,
-        mouseX: 0, mouseY: 0,
-        plants: [],
-        zombies: [],
-        projectiles: [],
-        particles: [],
-        suns: [],
-        notifications: [],
-        mowers: [],
-        spawnTimer: 0,
-        spawnInterval: 550,
-        firstZombieAt: 900,
-        zombiesKilledThisWave: 0,
-        totalZombiesSpawned: 0,
-        shovelMode: false,
-        hoverRow: -1, hoverCol: -1,
-        menuAnim: 0,
-        gameOverDelay: 0,
-        wave: 1
-    };
-    // Cortacéspedes, uno por fila
-    for (let r = 0; r < ROWS; r++) {
-        S.mowers.push({ row: r, x: GRID_X - 42, y: GRID_Y + r * CELL_H + CELL_H/2, active: true, triggered: false });
-    }
-}
-resetState();
-
-// ============================
-// CLASES DE ENTIDADES
-// ============================
-class Plant {
-    constructor(row, col, type) {
-        this.row = row; this.col = col; this.type = type;
-        this.hp = PLANT_DATA[type].hp;
-        this.maxHp = this.hp;
-        this.timer = 0;
-        this.shootAnim = 0;
-        this.x = GRID_X + col * CELL_W;
-        this.y = GRID_Y + row * CELL_H;
-        this.alive = true;
-        this.placeAnim = 10;
-    }
-    update() {
-        if (this.placeAnim > 0) this.placeAnim--;
-        this.timer++;
-        this.shootAnim = Math.max(0, this.shootAnim - 1);
-
-        if (this.type === 'sunflower') {
-            if (this.timer >= PLANT_DATA.sunflower.interval) {
-                this.timer = 0;
-                S.suns.push(new Sun(
-                    this.x + CELL_W/2 + (Math.random()-0.5)*30,
-                    this.y + 10, false
-                ));
-            }
-        } else if (this.type === 'peashooter') {
-            const hasZ = S.zombies.some(z => z.row === this.row && z.x > this.x && z.alive);
-            if (hasZ && this.timer >= PLANT_DATA.peashooter.interval) {
-                this.timer = 0;
-                this.shootAnim = 12;
-                S.projectiles.push(new Projectile(this.x + CELL_W - 8, this.y + CELL_H/2 - 5, this.row));
-                playSound('shoot');
-            }
+    Planta(int _x, int _y, char _tipo) : x(_x), y(_y), tipo(_tipo), contador(0) {
+        if (tipo == 'G') {
+            vida = 50;
+            tiempo_recarga = 80;
+        } else {
+            vida = 80;
+            tiempo_recarga = 40;
         }
     }
-}
+
+    void actualizar(int& soles, vector<Proyectil>& proyectiles) {
+        contador++;
+        if (tipo == 'G' && contador >= tiempo_recarga) {
+            soles += 25;
+            contador = 0;
+            gotoXY(x, y - 1);
+            setColor(AMARILLO);
+            cout << "+25";
+            Sleep(150); // Pequeña pausa para que se vea
+            gotoXY(x, y - 1);
+            cout << "   "; // Borrar el texto
+        } else if (tipo == 'L' && contador >= tiempo_recarga) {
+            proyectiles.push_back(Proyectil(x + 2, y));
+            contador = 0;
+        }
+    }
+
+    void dibujar() {
+        gotoXY(x, y);
+        if (tipo == 'G') {
+            setColor(AMARILLO);
+            cout << "G";
+        } else {
+            setColor(VERDE);
+            cout << "P";
+        }
+    }
+};
 
 class Zombie {
-    constructor(row, hpMult, speedMult) {
-        this.row = row;
-        this.x = GRID_X + COLS * CELL_W + 30 + Math.random() * 120;
-        this.y = GRID_Y + row * CELL_H;
-        this.hp = Math.round(100 * (hpMult || 1));
-        this.maxHp = this.hp;
-        this.speed = 0.28 * (speedMult || 1);
-        this.baseSpeed = this.speed;
-        this.eating = false;
-        this.eatingTarget = null;
-        this.anim = Math.random() * 200;
-        this.flash = 0;
-        this.alive = true;
-        this.frozen = 0;
-    }
-    update() {
-        this.anim++;
-        if (this.flash > 0) this.flash--;
-        if (this.frozen > 0) { this.frozen--; this.speed = this.baseSpeed * 0.3; }
-        else { this.speed = this.baseSpeed; }
+public:
+    int x, y;
+    int prevX, prevY;
+    int vida;
+    int velocidad;
+    bool vivo;
+    bool comiendo;
 
-        if (this.eating && this.eatingTarget) {
-            if (!this.eatingTarget.alive) {
-                this.eating = false;
-                this.eatingTarget = null;
-            } else {
-                this.eatingTarget.hp -= 0.8;
-                if (this.eatingTarget.hp <= 0) {
-                    this.eatingTarget.alive = false;
-                    spawnParticles(this.eatingTarget.x + CELL_W/2, this.eatingTarget.y + CELL_H/2, '#4CAF50', 6);
-                    this.eating = false;
-                    this.eatingTarget = null;
+    Zombie(int _y) {
+        y = _y;
+        x = 60;
+        prevX = x; prevY = y;
+        vida = 100;
+        velocidad = 1;
+        vivo = true;
+        comiendo = false;
+    }
+
+    void mover() {
+        prevX = x; prevY = y;
+        if (!comiendo) {
+            if (x > 2) x -= velocidad;
+        }
+    }
+
+    void recibirDaño(int dmg) {
+        vida -= dmg;
+        if (vida <= 0) vivo = false;
+    }
+
+    void borrar() {
+        gotoXY(prevX, prevY); cout << " ";
+    }
+
+    void dibujar() {
+        gotoXY(x, y);
+        setColor(comiendo ? MARRON : ROJO); // Cambia color si está comiendo
+        cout << "Z";
+    }
+};
+
+// --- FUNCIÓN PARA DIBUJAR LA INTERFAZ ESTÁTICA ---
+void dibujarInterfaz(int soles, int puntaje) {
+    gotoXY(0, 0);
+    setColor(BLANCO);
+    cout << "=== PLANTS VS ZOMBIES (C++ CONSOLE) ===" << endl;
+    
+    gotoXY(0, 1);
+    cout << "Soles: " << soles << " | Zombis Eliminados: " << puntaje << endl;
+    
+    gotoXY(0, 2);
+    cout << "[1-5] Seleccionar Fila | [G] Girasol (50) | [L] Lanzaguisantes (100)" << endl;
+    
+    gotoXY(0, 3);
+    cout << "--------------------------------------------------------" << endl;
+    
+    // Bordes del área de juego (solo se dibujan una vez)
+    for(int i=0; i<5; i++) {
+        gotoXY(9, 5 + i); cout << "|";
+        gotoXY(61, 5 + i); cout << "|";
+    }
+}
+
+// --- FUNCIÓN PRINCIPAL ---
+int main() {
+    srand(time(NULL));
+    ocultarCursor();
+    
+    bool juegoTerminado = false;
+    int soles = 100;
+    int puntaje = 0;
+    int frame = 0;
+    int filaSeleccionada = -1; // Estado para saber en qué fila plantar
+    
+    vector<Planta> plantas;
+    vector<Zombie> zombis;
+    vector<Proyectil> proyectiles;
+
+    // Dibujar interfaz estática al inicio (sin parpadeos)
+    system("cls");
+    dibujarInterfaz(soles, puntaje);
+
+    while (!juegoTerminado) {
+        // Actualizar Soles y Puntaje en la UI sin borrar todo
+        gotoXY(7, 1); setColor(AMARILLO); cout << "   " << soles;
+        gotoXY(35, 1); setColor(ROJO); cout << "   " << puntaje;
+
+        // --- LÓGICA DE SPAWN DE ZOMBIS ---
+        if (frame % 200 == 0 && frame > 0) {
+            int fila = rand() % 5;
+            zombis.push_back(Zombie(5 + fila));
+        }
+
+        // --- ACTUALIZAR Y DIBUJAR PLANTAS ---
+        for (auto& p : plantas) {
+            p.actualizar(soles, proyectiles);
+            p.dibujar();
+        }
+
+        // --- LÓGICA DE BALAS ---
+        for (auto& b : proyectiles) {
+            if (b.activo) {
+                b.borrar();
+                b.mover();
+                
+                // Colisión Bala vs Zombi
+                for (auto& z : zombis) {
+                    if (z.vivo && abs(b.x - z.x) <= 1 && b.y == z.y) {
+                        z.recibirDaño(20);
+                        b.activo = false;
+                        b.borrar();
+                        if (!z.vivo) {
+                            z.borrar();
+                            puntaje++;
+                        }
+                        break;
+                    }
                 }
+                if (b.activo) b.dibujar();
             }
-        } else {
-            this.x -= this.speed;
-        }
-    }
-    takeDamage(dmg) {
-        this.hp -= dmg;
-        this.flash = 6;
-        playSound('hit');
-        if (this.hp <= 0) {
-            this.alive = false;
-            S.score++;
-            S.zombiesKilledThisWave++;
-            spawnParticles(this.x + 20, this.y + 40, '#8D9E7C', 10);
-            spawnParticles(this.x + 20, this.y + 30, '#5D4037', 5);
-        }
-    }
-}
-
-class Projectile {
-    constructor(x, y, row) {
-        this.x = x; this.y = y; this.row = row;
-        this.speed = 4.5; this.active = true; this.trail = [];
-    }
-    update() {
-        this.trail.push({x: this.x, y: this.y, life: 8});
-        this.x += this.speed;
-        if (this.x > W + 10) this.active = false;
-        this.trail = this.trail.filter(t => { t.life--; return t.life > 0; });
-    }
-}
-
-class Sun {
-    constructor(x, y, fromSky) {
-        this.x = x; this.y = fromSky ? -30 : y;
-        this.fromSky = fromSky;
-        this.targetY = fromSky ? (GRID_Y + Math.random() * (ROWS * CELL_H - 40)) : (y - 20 - Math.random() * 30);
-        this.value = 25;
-        this.life = 500;
-        this.collected = false;
-        this.collectProgress = 0;
-        this.startX = x;
-        this.startY = this.fromSky ? -30 : y;
-        this.phase = Math.random() * Math.PI * 2;
-        this.falling = fromSky;
-        this.scale = 0;
-    }
-    update() {
-        if (this.scale < 1) this.scale = Math.min(1, this.scale + 0.08);
-        if (this.collected) {
-            this.collectProgress += 0.06;
-            this.x = this.startX + (55 - this.startX) * easeOut(this.collectProgress);
-            this.y = this.startY + (28 - this.startY) * easeOut(this.collectProgress);
-            this.scale = 1 - this.collectProgress * 0.5;
-            if (this.collectProgress >= 1) {
-                S.sun += this.value;
-                this.life = 0;
-            }
-        } else if (this.falling) {
-            this.y += 1.2;
-            if (this.y >= this.targetY) { this.falling = false; this.y = this.targetY; }
-        } else {
-            this.life--;
-            this.y += Math.sin(this.phase + S.frame * 0.04) * 0.4;
-        }
-    }
-}
-
-class Particle {
-    constructor(x, y, vx, vy, color, life, size) {
-        this.x = x; this.y = y; this.vx = vx; this.vy = vy;
-        this.color = color; this.life = life; this.maxLife = life;
-        this.size = size || 3;
-    }
-    update() {
-        this.x += this.vx; this.y += this.vy;
-        this.vy += 0.12;
-        this.vx *= 0.98;
-        this.life--;
-    }
-}
-
-class Notification {
-    constructor(text, x, y, color) {
-        this.text = text; this.x = x; this.y = y;
-        this.color = color || '#fff'; this.life = 60; this.maxLife = 60;
-    }
-    update() { this.y -= 0.8; this.life--; }
-}
-
-// ============================
-// UTILIDADES
-// ============================
-function easeOut(t) { return 1 - Math.pow(1 - t, 3); }
-function spawnParticles(x, y, color, count, size) {
-    for (let i = 0; i < count; i++) {
-        S.particles.push(new Particle(
-            x, y,
-            (Math.random()-0.5) * 5,
-            (Math.random()-0.5) * 5 - 2,
-            color,
-            25 + Math.random() * 20,
-            size || (2 + Math.random() * 3)
-        ));
-    }
-}
-function addNotif(text, x, y, color) {
-    S.notifications.push(new Notification(text, x, y, color));
-}
-function getMousePos(e) {
-    const r = canvas.getBoundingClientRect();
-    return { x: (e.clientX - r.left) * (W / r.width), y: (e.clientY - r.top) * (H / r.height) };
-}
-function gridFromPos(mx, my) {
-    const col = Math.floor((mx - GRID_X) / CELL_W);
-    const row = Math.floor((my - GRID_Y) / CELL_H);
-    if (col >= 0 && col < COLS && row >= 0 && row < ROWS) return { row, col };
-    return null;
-}
-function plantAt(row, col) {
-    return S.plants.find(p => p.row === row && p.col === col && p.alive);
-}
-
-// ============================
-// DIBUJO - FONDO Y CAMPO
-// ============================
-function drawBackground() {
-    // Cielo cálido
-    const skyGrad = ctx.createLinearGradient(0, 0, 0, GRID_Y);
-    skyGrad.addColorStop(0, '#FFE0B2');
-    skyGrad.addColorStop(1, '#C8E6C9');
-    ctx.fillStyle = skyGrad;
-    ctx.fillRect(0, 0, W, GRID_Y);
-
-    // Césped con franjas alternadas
-    for (let r = 0; r < ROWS; r++) {
-        const ry = GRID_Y + r * CELL_H;
-        ctx.fillStyle = r % 2 === 0 ? '#4CAF50' : '#43A047';
-        ctx.fillRect(GRID_X - 45, ry, COLS * CELL_W + 170, CELL_H);
-        // Línea sutil entre celdas
-        ctx.strokeStyle = 'rgba(0,0,0,0.06)';
-        ctx.lineWidth = 1;
-        for (let c = 0; c <= COLS; c++) {
-            const cx = GRID_X + c * CELL_W;
-            ctx.beginPath(); ctx.moveTo(cx, ry); ctx.lineTo(cx, ry + CELL_H); ctx.stroke();
-        }
-        ctx.beginPath(); ctx.moveTo(GRID_X - 45, ry); ctx.lineTo(GRID_X + COLS*CELL_W + 125, ry); ctx.stroke();
-    }
-
-    // Tierra debajo del césped
-    const earthGrad = ctx.createLinearGradient(0, GRID_Y + ROWS*CELL_H, 0, H);
-    earthGrad.addColorStop(0, '#5D4037');
-    earthGrad.addColorStop(1, '#3E2723');
-    ctx.fillStyle = earthGrad;
-    ctx.fillRect(0, GRID_Y + ROWS*CELL_H, W, H - GRID_Y - ROWS*CELL_H);
-
-    // Borde izquierdo - valla
-    ctx.fillStyle = '#6D4C41';
-    ctx.fillRect(GRID_X - 48, GRID_Y, 6, ROWS * CELL_H);
-    ctx.fillStyle = '#8D6E63';
-    for (let r = 0; r < ROWS; r++) {
-        const fy = GRID_Y + r * CELL_H + 20;
-        ctx.fillRect(GRID_X - 52, fy, 14, 8);
-        ctx.fillRect(GRID_X - 52, fy + 50, 14, 8);
-    }
-
-    // Camino derecho (donde aparecen zombis)
-    ctx.fillStyle = 'rgba(62,39,35,0.3)';
-    ctx.fillRect(GRID_X + COLS*CELL_W, GRID_Y, 200, ROWS*CELL_H);
-}
-
-// ============================
-// DIBUJO - ENTIDADES
-// ============================
-function drawSunflower(x, y, frame, scale) {
-    const s = scale || 1;
-    const cx = x + CELL_W/2, cy = y + CELL_H/2 - 8;
-    const bob = Math.sin(frame * 0.07) * 3;
-
-    ctx.save();
-    ctx.translate(cx, cy + bob);
-    ctx.scale(s, s);
-    ctx.translate(-cx, -(cy + bob));
-
-    // Tallo
-    ctx.fillStyle = '#2E7D32';
-    roundRect(cx - 3, cy + 18 + bob, 6, 35, 2);
-
-    // Hojas
-    ctx.fillStyle = '#43A047';
-    ctx.save(); ctx.translate(cx - 10, cy + 30 + bob); ctx.rotate(-0.4);
-    ctx.beginPath(); ctx.ellipse(0, 0, 11, 5, 0, 0, Math.PI*2); ctx.fill();
-    ctx.restore();
-    ctx.save(); ctx.translate(cx + 10, cy + 35 + bob); ctx.rotate(0.4);
-    ctx.beginPath(); ctx.ellipse(0, 0, 11, 5, 0, 0, Math.PI*2); ctx.fill();
-    ctx.restore();
-
-    // Pétalos
-    for (let i = 0; i < 10; i++) {
-        const a = (i/10) * Math.PI * 2 + Math.sin(frame*0.03)*0.1;
-        const px = cx + Math.cos(a) * 17;
-        const py = cy + bob + Math.sin(a) * 17;
-        ctx.fillStyle = i % 2 === 0 ? '#FFC107' : '#FFB300';
-        ctx.beginPath(); ctx.ellipse(px, py, 9, 5, a, 0, Math.PI*2); ctx.fill();
-    }
-
-    // Centro
-    ctx.fillStyle = '#5D4037';
-    ctx.beginPath(); ctx.arc(cx, cy + bob, 11, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = '#4E342E';
-    ctx.beginPath(); ctx.arc(cx, cy + bob, 8, 0, Math.PI*2); ctx.fill();
-
-    // Cara
-    ctx.fillStyle = '#1B0000';
-    ctx.beginPath(); ctx.arc(cx - 4, cy + bob - 2, 1.8, 0, Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.arc(cx + 4, cy + bob - 2, 1.8, 0, Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.arc(cx, cy + bob + 3, 4, 0.1, Math.PI - 0.1);
-    ctx.strokeStyle = '#1B0000'; ctx.lineWidth = 1.2; ctx.stroke();
-
-    ctx.restore();
-}
-
-function drawPeashooter(x, y, frame, shooting, scale) {
-    const s = scale || 1;
-    const cx = x + CELL_W/2, cy = y + CELL_H/2 - 5;
-    const bob = Math.sin(frame * 0.06) * 2;
-
-    ctx.save();
-    ctx.translate(cx, cy + bob);
-    ctx.scale(s, s);
-    ctx.translate(-cx, -(cy + bob));
-
-    // Tallo
-    ctx.fillStyle = '#2E7D32';
-    roundRect(cx - 4, cy + 16, 8, 32, 3);
-
-    // Hoja
-    ctx.fillStyle = '#388E3C';
-    ctx.save(); ctx.translate(cx - 12, cy + 28); ctx.rotate(-0.5);
-    ctx.beginPath(); ctx.ellipse(0, 0, 12, 5, 0, 0, Math.PI*2); ctx.fill();
-    ctx.restore();
-
-    // Cabeza
-    ctx.fillStyle = '#4CAF50';
-    ctx.beginPath(); ctx.arc(cx - 2, cy, 17, 0, Math.PI*2); ctx.fill();
-
-    // Boca / tubo
-    const mo = shooting ? 7 : 4;
-    ctx.fillStyle = '#388E3C';
-    ctx.beginPath(); ctx.ellipse(cx + 14, cy, 12, mo, 0, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = '#1B5E20';
-    ctx.beginPath(); ctx.ellipse(cx + 14, cy, 8, Math.max(1, mo - 2), 0, 0, Math.PI*2); ctx.fill();
-
-    // Ojos
-    ctx.fillStyle = '#fff';
-    ctx.beginPath(); ctx.ellipse(cx - 8, cy - 7, 6, 7, -0.1, 0, Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(cx + 3, cy - 7, 6, 7, 0.1, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = '#1a1a1a';
-    ctx.beginPath(); ctx.arc(cx - 5, cy - 6, 3, 0, Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.arc(cx + 6, cy - 6, 3, 0, Math.PI*2); ctx.fill();
-    // Brillo
-    ctx.fillStyle = '#fff';
-    ctx.beginPath(); ctx.arc(cx - 4, cy - 8, 1.2, 0, Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.arc(cx + 7, cy - 8, 1.2, 0, Math.PI*2); ctx.fill();
-
-    ctx.restore();
-}
-
-function drawWallnut(x, y, frame, hpRatio, scale) {
-    const s = scale || 1;
-    const cx = x + CELL_W/2, cy = y + CELL_H/2 + 5;
-
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.scale(s, s);
-    ctx.translate(-cx, -cy);
-
-    // Cuerpo principal
-    ctx.fillStyle = '#A1887F';
-    ctx.beginPath(); ctx.ellipse(cx, cy, 26, 32, 0, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = '#8D6E63';
-    ctx.beginPath(); ctx.ellipse(cx, cy, 22, 28, 0, 0, Math.PI*2); ctx.fill();
-
-    // Grietas según daño
-    if (hpRatio < 0.66) {
-        ctx.strokeStyle = '#5D4037'; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.moveTo(cx - 8, cy - 15); ctx.lineTo(cx - 3, cy - 5); ctx.lineTo(cx - 10, cy + 5); ctx.stroke();
-    }
-    if (hpRatio < 0.33) {
-        ctx.beginPath(); ctx.moveTo(cx + 6, cy - 12); ctx.lineTo(cx + 2, cy); ctx.lineTo(cx + 9, cy + 10); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(cx - 5, cy + 8); ctx.lineTo(cx + 5, cy + 15); ctx.stroke();
-    }
-
-    // Cara
-    ctx.fillStyle = '#3E2723';
-    ctx.beginPath(); ctx.arc(cx - 7, cy - 6, 2.5, 0, Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.arc(cx + 7, cy - 6, 2.5, 0, Math.PI*2); ctx.fill();
-    // Boca - preocupada
-    ctx.beginPath(); ctx.arc(cx, cy + 8, 6, Math.PI + 0.3, -0.3);
-    ctx.strokeStyle = '#3E2723'; ctx.lineWidth = 1.5; ctx.stroke();
-
-    ctx.restore();
-}
-
-function drawZombie(z) {
-    const x = z.x, y = z.y;
-    const walk = Math.sin(z.anim * 0.08);
-    const bob = Math.abs(walk) * 3;
-    const eating = z.eating;
-
-    ctx.save();
-    if (z.flash > 0) {
-        ctx.globalAlpha = 0.7;
-    }
-
-    // Sombra
-    ctx.fillStyle = 'rgba(0,0,0,0.15)';
-    ctx.beginPath(); ctx.ellipse(x + 20, y + CELL_H - 6, 16, 5, 0, 0, Math.PI*2); ctx.fill();
-
-    // Piernas
-    const legOffset = eating ? 0 : walk * 5;
-    ctx.fillStyle = '#455A64';
-    roundRect(x + 10, y + 65 - bob, 8, 22 + legOffset, 3);
-    roundRect(x + 22, y + 65 - bob, 8, 22 - legOffset, 3);
-    // Zapatos
-    ctx.fillStyle = '#37474F';
-    roundRect(x + 8, y + 85 - bob + legOffset, 12, 6, 2);
-    roundRect(x + 20, y + 85 - bob - legOffset, 12, 6, 2);
-
-    // Cuerpo
-    ctx.fillStyle = '#5D4037';
-    roundRect(x + 8, y + 35 - bob, 26, 32, 4);
-    // Corbata
-    ctx.fillStyle = '#B71C1C';
-    roundRect(x + 18, y + 37 - bob, 5, 18, 2);
-
-    // Brazos
-    ctx.fillStyle = z.flash > 0 ? '#ef5350' : '#8D9E7C';
-    const armAngle = eating ? Math.sin(z.anim * 0.2) * 0.3 : -0.1;
-    ctx.save(); ctx.translate(x + 8, y + 38 - bob); ctx.rotate(-0.5 + armAngle);
-    roundRect(-16, -4, 20, 7, 3); ctx.restore();
-    ctx.save(); ctx.translate(x + 8, y + 48 - bob); ctx.rotate(-0.4 - armAngle);
-    roundRect(-14, -4, 18, 7, 3); ctx.restore();
-
-    // Cabeza
-    ctx.fillStyle = z.flash > 0 ? '#ef5350' : '#8D9E7C';
-    ctx.beginPath(); ctx.ellipse(x + 21, y + 22 - bob, 14, 17, 0, 0, Math.PI*2); ctx.fill();
-
-    // Ojos
-    ctx.fillStyle = '#fff';
-    ctx.beginPath(); ctx.ellipse(x + 15, y + 18 - bob, 5, 5.5, 0, 0, Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(x + 27, y + 18 - bob, 5, 5.5, 0, 0, Math.PI*2); ctx.fill();
-    // Pupilas rojas
-    ctx.fillStyle = '#C62828';
-    ctx.beginPath(); ctx.arc(x + 14, y + 18 - bob, 2.5, 0, Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.arc(x + 26, y + 18 - bob, 2.5, 0, Math.PI*2); ctx.fill();
-
-    // Boca
-    ctx.fillStyle = '#3E2723';
-    ctx.beginPath();
-    if (eating) {
-        ctx.ellipse(x + 21, y + 30 - bob, 5, 4 + Math.sin(z.anim*0.3)*2, 0, 0, Math.PI*2);
-    } else {
-        ctx.ellipse(x + 21, y + 31 - bob, 6, 2, 0, 0, Math.PI*2);
-    }
-    ctx.fill();
-
-    // Barra de vida
-    if (z.hp < z.maxHp) {
-        const bw = 30, bh = 4;
-        const bx = x + 5, by = y - 4;
-        ctx.fillStyle = 'rgba(0,0,0,0.5)';
-        roundRect(bx, by, bw, bh, 2);
-        const ratio = Math.max(0, z.hp / z.maxHp);
-        ctx.fillStyle = ratio > 0.5 ? '#66BB6A' : ratio > 0.25 ? '#FFA726' : '#EF5350';
-        roundRect(bx, by, bw * ratio, bh, 2);
-    }
-
-    // Indicador de congelación
-    if (z.frozen > 0) {
-        ctx.fillStyle = 'rgba(100,181,246,0.3)';
-        ctx.beginPath(); ctx.ellipse(x + 21, y + 40 - bob, 20, 35, 0, 0, Math.PI*2); ctx.fill();
-    }
-
-    ctx.restore();
-}
-
-function drawProjectile(p) {
-    // Estela
-    for (const t of p.trail) {
-        const a = t.life / 8;
-        ctx.fillStyle = `rgba(76,175,80,${a * 0.4})`;
-        ctx.beginPath(); ctx.arc(t.x, t.y, 3 * a, 0, Math.PI*2); ctx.fill();
-    }
-    // Guisante
-    ctx.fillStyle = '#4CAF50';
-    ctx.beginPath(); ctx.arc(p.x, p.y, 6, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = '#81C784';
-    ctx.beginPath(); ctx.arc(p.x - 1.5, p.y - 1.5, 2.5, 0, Math.PI*2); ctx.fill();
-}
-
-function drawSunEntity(s) {
-    const pulse = 1 + Math.sin(S.frame * 0.1 + s.phase) * 0.08;
-    const r = 16 * pulse * s.scale;
-    const alpha = s.life < 60 && !s.collected ? s.life / 60 : 1;
-
-    ctx.save();
-    ctx.globalAlpha = alpha;
-
-    // Brillo exterior
-    ctx.fillStyle = 'rgba(255,235,59,0.2)';
-    ctx.beginPath(); ctx.arc(s.x, s.y, r + 8, 0, Math.PI*2); ctx.fill();
-
-    // Rayos
-    ctx.fillStyle = '#FFA000';
-    for (let i = 0; i < 8; i++) {
-        const a = (i/8) * Math.PI*2 + S.frame * 0.02;
-        ctx.beginPath();
-        ctx.moveTo(s.x + Math.cos(a) * r * 0.5, s.y + Math.sin(a) * r * 0.5);
-        ctx.lineTo(s.x + Math.cos(a) * r * 1.4, s.y + Math.sin(a) * r * 1.4);
-        ctx.lineTo(s.x + Math.cos(a + 0.3) * r * 0.8, s.y + Math.sin(a + 0.3) * r * 0.8);
-        ctx.closePath(); ctx.fill();
-    }
-
-    // Centro
-    ctx.fillStyle = '#FFD54F';
-    ctx.beginPath(); ctx.arc(s.x, s.y, r * 0.7, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = '#FFEE58';
-    ctx.beginPath(); ctx.arc(s.x, s.y, r * 0.45, 0, Math.PI*2); ctx.fill();
-
-    // Valor
-    if (!s.collected && s.scale >= 0.8) {
-        ctx.fillStyle = '#5D4037';
-        ctx.font = 'bold 10px Nunito';
-        ctx.textAlign = 'center';
-        ctx.fillText(s.value, s.x, s.y + 4);
-    }
-
-    ctx.restore();
-}
-
-function drawMower(m) {
-    if (!m.active) return;
-    const x = m.x, y = m.y;
-    ctx.fillStyle = '#D32F2F';
-    roundRect(x - 14, y - 10, 28, 20, 4);
-    ctx.fillStyle = '#B71C1C';
-    roundRect(x - 10, y - 7, 10, 14, 2);
-    // Ruedas
-    ctx.fillStyle = '#212121';
-    ctx.beginPath(); ctx.arc(x - 10, y + 10, 5, 0, Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.arc(x + 10, y + 10, 5, 0, Math.PI*2); ctx.fill();
-    // Escape
-    if (m.triggered) {
-        for (let i = 0; i < 3; i++) {
-            ctx.fillStyle = `rgba(100,100,100,${0.4 - i*0.1})`;
-            ctx.beginPath(); ctx.arc(x - 18 - i*8 + Math.random()*4, y - 5 + Math.random()*10, 4+i*2, 0, Math.PI*2); ctx.fill();
-        }
-    }
-}
-
-function roundRect(x, y, w, h, r) {
-    r = Math.min(r, w/2, h/2);
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.lineTo(x + w - r, y);
-    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-    ctx.lineTo(x + w, y + h - r);
-    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-    ctx.lineTo(x + r, y + h);
-    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-    ctx.lineTo(x, y + r);
-    ctx.quadraticCurveTo(x, y, x + r, y);
-    ctx.closePath();
-    ctx.fill();
-}
-
-// ============================
-// DIBUJO - UI SUPERIOR
-// ============================
-function drawUI() {
-    // Barra superior
-    const barGrad = ctx.createLinearGradient(0, 0, 0, UI_H);
-    barGrad.addColorStop(0, '#3E2723');
-    barGrad.addColorStop(1, '#4E342E');
-    ctx.fillStyle = barGrad;
-    ctx.fillRect(0, 0, W, UI_H);
-    ctx.fillStyle = '#5D4037';
-    ctx.fillRect(0, UI_H - 2, W, 2);
-
-    // Contador de soles
-    // Icono de sol mini
-    drawMiniSun(32, 38, 14);
-    ctx.fillStyle = '#FFD54F';
-    ctx.font = 'bold 26px Bungee';
-    ctx.textAlign = 'left';
-    ctx.fillText(S.sun, 55, 48);
-
-    // Tarjetas de plantas
-    const cards = [
-        { type: 'sunflower',  x: 160 },
-        { type: 'peashooter', x: 240 },
-        { type: 'wallnut',    x: 320 }
-    ];
-
-    cards.forEach(c => {
-        const data = PLANT_DATA[c.type];
-        const selected = S.selectedPlant === c.type;
-        const canAfford = S.sun >= data.cost;
-        const cx = c.x, cy = 8, cw = 68, ch = 72;
-
-        // Fondo de tarjeta
-        ctx.fillStyle = selected ? '#FFD54F' : (canAfford ? '#6D4C41' : '#4E342E');
-        ctx.strokeStyle = selected ? '#FFA000' : 'rgba(255,255,255,0.1)';
-        ctx.lineWidth = selected ? 3 : 1;
-        ctx.beginPath();
-        ctx.roundRect(cx, cy, cw, ch, 6);
-        ctx.fill(); ctx.stroke();
-
-        if (!canAfford && !selected) {
-            ctx.fillStyle = 'rgba(0,0,0,0.35)';
-            ctx.beginPath(); ctx.roundRect(cx, cy, cw, ch, 6); ctx.fill();
         }
 
-        // Icono de planta
-        ctx.save();
-        ctx.beginPath(); ctx.roundRect(cx, cy, cw, ch, 6); ctx.clip();
-        if (c.type === 'sunflower') drawSunflower(cx - 7, cy - 8, S.frame, 0.55);
-        else if (c.type === 'peashooter') drawPeashooter(cx - 7, cy - 8, S.frame, false, 0.55);
-        else if (c.type === 'wallnut') drawWallnut(cx - 7, cy + 2, S.frame, 1, 0.45);
-        ctx.restore();
+        // --- LÓGICA DE ZOMBIS ---
+        for (auto& z : zombis) {
+            if (z.vivo) {
+                z.comiendo = false;
+                
+                // Verificar si el zombi está tocando una planta
+                for (auto& p : plantas) {
+                    if (abs(z.x - p.x) <= 1 && z.y == p.y) {
+                        z.comiendo = true;
+                        p.vida -= 1; // Daño por frame
+                        if (p.vida <= 0) {
+                            gotoXY(p.x, p.y); cout << " "; // Borrar planta muerta
+                        }
+                        break;
+                    }
+                }
 
-        // Costo
-        ctx.fillStyle = canAfford ? '#FFD54F' : '#EF5350';
-        ctx.font = 'bold 13px Nunito';
-        ctx.textAlign = 'center';
-        ctx.fillText(data.cost + '☀', cx + cw/2, cy + ch - 4);
-    });
+                z.borrar();
+                z.mover();
+                z.dibujar();
 
-    // Pala
-    const sx = 400, sy = 8, sw = 52, sh = 72;
-    ctx.fillStyle = S.shovelMode ? '#FFD54F' : '#6D4C41';
-    ctx.strokeStyle = S.shovelMode ? '#FFA000' : 'rgba(255,255,255,0.1)';
-    ctx.lineWidth = S.shovelMode ? 3 : 1;
-    ctx.beginPath(); ctx.roundRect(sx, sy, sw, sh, 6); ctx.fill(); ctx.stroke();
-
-    // Icono pala
-    ctx.fillStyle = '#8D6E63';
-    ctx.fillRect(sx + 22, sy + 12, 6, 30);
-    ctx.fillStyle = '#78909C';
-    ctx.beginPath();
-    ctx.moveTo(sx + 14, sy + 40);
-    ctx.lineTo(sx + 36, sy + 40);
-    ctx.lineTo(sx + 32, sy + 56);
-    ctx.lineTo(sx + 18, sy + 56);
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.fillStyle = '#BCAAA4';
-    ctx.font = '10px Nunito';
-    ctx.textAlign = 'center';
-    ctx.fillText('PALA', sx + sw/2, sy + sh - 3);
-
-    // Puntuación
-    ctx.fillStyle = '#BCAAA4';
-    ctx.font = '13px Nunito';
-    ctx.textAlign = 'right';
-    ctx.fillText('Eliminados', W - 20, 28);
-    ctx.fillStyle = '#EF5350';
-    ctx.font = 'bold 24px Bungee';
-    ctx.fillText(S.score, W - 20, 56);
-
-    // Oleada
-    ctx.fillStyle = '#BCAAA4';
-    ctx.font = '13px Nunito';
-    ctx.textAlign = 'right';
-    ctx.fillText('Oleada ' + S.wave, W - 120, 28);
-}
-
-function drawMiniSun(x, y, r) {
-    ctx.fillStyle = '#FFA000';
-    for (let i = 0; i < 6; i++) {
-        const a = (i/6)*Math.PI*2 + S.frame*0.03;
-        ctx.beginPath();
-        ctx.moveTo(x, y);
-        ctx.lineTo(x + Math.cos(a)*r*1.3, y + Math.sin(a)*r*1.3);
-        ctx.lineTo(x + Math.cos(a+0.3)*r*0.8, y + Math.sin(a+0.3)*r*0.8);
-        ctx.fill();
-    }
-    ctx.fillStyle = '#FFD54F';
-    ctx.beginPath(); ctx.arc(x, y, r*0.65, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = '#FFEE58';
-    ctx.beginPath(); ctx.arc(x, y, r*0.4, 0, Math.PI*2); ctx.fill();
-}
-
-// ============================
-// DIBUJO - PREVIEW DE PLANTA
-// ============================
-function drawPlacementPreview() {
-    if (!S.selectedPlant || S.hoverRow < 0 || S.shovelMode) return;
-    const x = GRID_X + S.hoverCol * CELL_W;
-    const y = GRID_Y + S.hoverRow * CELL_H;
-    const existing = plantAt(S.hoverRow, S.hoverCol);
-    const canPlace = !existing && S.sun >= PLANT_DATA[S.selectedPlant].cost;
-
-    ctx.fillStyle = canPlace ? 'rgba(76,175,80,0.2)' : 'rgba(244,67,54,0.2)';
-    ctx.fillRect(x, y, CELL_W, CELL_H);
-
-    ctx.globalAlpha = 0.5;
-    if (S.selectedPlant === 'sunflower') drawSunflower(x, y, S.frame);
-    else if (S.selectedPlant === 'peashooter') drawPeashooter(x, y, S.frame, false);
-    else if (S.selectedPlant === 'wallnut') drawWallnut(x, y, S.frame, 1);
-    ctx.globalAlpha = 1;
-}
-
-function drawShovelPreview() {
-    if (!S.shovelMode || S.hoverRow < 0) return;
-    const x = GRID_X + S.hoverCol * CELL_W;
-    const y = GRID_Y + S.hoverRow * CELL_H;
-    const existing = plantAt(S.hoverRow, S.hoverCol);
-    if (existing) {
-        ctx.fillStyle = 'rgba(244,67,54,0.3)';
-        ctx.fillRect(x, y, CELL_W, CELL_H);
-    }
-}
-
-// ============================
-// LÓGICA DEL JUEGO - ACTUALIZACIÓN
-// ============================
-function updateGame() {
-    S.frame++;
-
-    // Generación de soles del cielo
-    if (S.frame % 550 === 0) {
-        S.suns.push(new Sun(GRID_X + Math.random() * (COLS * CELL_W - 30), 0, true));
-    }
-
-    // Spawn de zombis
-    S.spawnTimer++;
-    const canSpawn = S.frame > S.firstZombieAt;
-    if (canSpawn && S.spawnTimer >= S.spawnInterval) {
-        S.spawnTimer = 0;
-        const row = Math.floor(Math.random() * ROWS);
-        const hpMult = 1 + (S.wave - 1) * 0.15;
-        const speedMult = 1 + (S.wave - 1) * 0.05;
-        S.zombies.push(new Zombie(row, hpMult, speedMult));
-        S.totalZombiesSpawned++;
-
-        // Aumentar dificultad cada 10 zombis
-        if (S.totalZombiesSpawned % 10 === 0) {
-            S.wave++;
-            S.spawnInterval = Math.max(150, S.spawnInterval - 30);
-            addNotif('Oleada ' + S.wave, W/2, H/2, '#FF6F00');
-        }
-    }
-
-    // Actualizar plantas
-    S.plants = S.plants.filter(p => p.alive);
-    for (const p of S.plants) p.update();
-
-    // Actualizar zombis
-    for (const z of S.zombies) {
-        if (!z.alive) continue;
-        z.update();
-
-        // Verificar si llegó a la zona de cortacéspedes
-        if (z.x < GRID_X) {
-            const mower = S.mowers.find(m => m.row === z.row && m.active && !m.triggered);
-            if (mower) {
-                mower.triggered = true;
-                playSound('mower');
-            } else {
                 // Game Over
-                S.screen = 'gameover';
-                S.gameOverDelay = 0;
-                playSound('gameover');
-                return;
-            }
-        }
-    }
-    S.zombies = S.zombies.filter(z => z.alive || z.flash > 0);
-
-    // Colisiones zombi-planta
-    for (const z of S.zombies) {
-        if (!z.alive) continue;
-        if (!z.eating) {
-            for (const p of S.plants) {
-                if (!p.alive) continue;
-                if (z.row === p.row && z.x < p.x + CELL_W - 10 && z.x + 30 > p.x) {
-                    z.eating = true;
-                    z.eatingTarget = p;
-                    break;
+                if (z.x <= 10) {
+                    juegoTerminado = true;
+                    gotoXY(20, 10);
+                    setColor(ROJO);
+                    cout << "¡LOS ZOMBIS COMIERON TU CEREBRO!";
+                    Sleep(3000);
                 }
             }
         }
-    }
 
-    // Actualizar proyectiles y colisiones con zombis
-    for (const p of S.projectiles) {
-        if (!p.active) continue;
-        p.update();
-        for (const z of S.zombies) {
-            if (!z.alive) continue;
-            if (z.row === p.row && Math.abs(p.x - (z.x + 15)) < 20 && Math.abs(p.y - (z.y + 40)) < 30) {
-                z.takeDamage(20);
-                p.active = false;
-                spawnParticles(p.x, p.y, '#4CAF50', 3, 2);
-                break;
-            }
-        }
-    }
-    S.projectiles = S.projectiles.filter(p => p.active);
+        // --- LIMPIEZA DE MEMORIA (MUY IMPORTANTE) ---
+        proyectiles.erase(remove_if(proyectiles.begin(), proyectiles.end(), 
+            [](Proyectil& b) { return !b.activo; }), proyectiles.end());
+            
+        zombis.erase(remove_if(zombis.begin(), zombis.end(), 
+            [](Zombie& z) { return !z.vivo; }), zombis.end());
+            
+        plantas.erase(remove_if(plantas.begin(), plantas.end(), 
+            [](Planta& p) { return p.vida <= 0; }), plantas.end());
 
-    // Actualizar cortacéspedes
-    for (const m of S.mowers) {
-        if (!m.active) continue;
-        if (m.triggered) {
-            m.x += 6;
-            for (const z of S.zombies) {
-                if (z.alive && z.row === m.row && Math.abs(z.x + 20 - m.x) < 40) {
-                    z.alive = false;
-                    S.score++;
-                    spawnParticles(z.x + 20, z.y + 40, '#8D9E7C', 8);
+        // --- INPUT DEL JUGADOR (NO BLOQUEANTE) ---
+        if (_kbhit()) {
+            char tecla = _getch();
+            
+            // Selección de fila
+            if (tecla >= '1' && tecla <= '5') {
+                filaSeleccionada = tecla - '1';
+                gotoXY(0, 4); setColor(CYAN);
+                cout << "Fila " << (filaSeleccionada + 1) << " seleccionada. Presiona G o L para plantar.";
+            } 
+            // Selección de planta
+            else if (filaSeleccionada != -1) {
+                int coordX = 15; // Todas las plantas nacen en la columna izquierda
+                int coordY = 5 + filaSeleccionada;
+                bool ocupado = false;
+
+                for (auto& p : plantas) {
+                    if (p.x == coordX && p.y == coordY) ocupado = true;
+                }
+
+                if (!ocupado) {
+                    if ((tecla == 'g' || tecla == 'G') && soles >= 50) {
+                        plantas.push_back(Planta(coordX, coordY, 'G'));
+                        soles -= 50;
+                        filaSeleccionada = -1; // Resetear selección
+                        gotoXY(0, 4); cout << "                                                          "; // Borrar mensaje
+                    } else if ((tecla == 'l' || tecla == 'L') && soles >= 100) {
+                        plantas.push_back(Planta(coordX, coordY, 'L'));
+                        soles -= 100;
+                        filaSeleccionada = -1;
+                        gotoXY(0, 4); cout << "                                                          ";
+                    }
                 }
             }
-            if (m.x > W + 20) m.active = false;
         }
+
+        frame++;
+        Sleep(30); // ~30 FPS
     }
 
-    // Actualizar soles
-    for (const s of S.suns) s.update();
-    S.suns = S.suns.filter(s => s.life > 0);
-
-    // Actualizar partículas
-    for (const p of S.particles) p.update();
-    S.particles = S.particles.filter(p => p.life > 0);
-
-    // Actualizar notificaciones
-    for (const n of S.notifications) n.update();
-    S.notifications = S.notifications.filter(n => n.life > 0);
+    return 0;
 }
-
-// ============================
-// DIBUJO PRINCIPAL
-// ============================
-function drawGame() {
-    ctx.clearRect(0, 0, W, H);
-    drawBackground();
-
-    // Cortacéspedes
-    for (const m of S.mowers) drawMower(m);
-
-    // Preview de colocación
-    drawPlacementPreview();
-    drawShovelPreview();
-
-    // Plantas
-    for (const p of S.plants) {
-        if (!p.alive) continue;
-        const sc = p.placeAnim > 0 ? 0.7 + 0.3 * (1 - p.placeAnim/10) : 1;
-        if (p.type === 'sunflower') drawSunflower(p.x, p.y, S.frame, sc);
-        else if (p.type === 'peashooter') drawPeashooter(p.x, p.y, S.frame, p.shootAnim > 0, sc);
-        else if (p.type === 'wallnut') drawWallnut(p.x, p.y, S.frame, p.hp / p.maxHp, sc);
-
-        // Barra de vida de la planta
-        if (p.hp < p.maxHp) {
-            const bw = CELL_W - 10, bh = 4;
-            const bx = p.x + 5, by = p.y + CELL_H - 8;
-            ctx.fillStyle = 'rgba(0,0,0,0.4)';
-            roundRect(bx, by, bw, bh, 2);
-            const ratio = Math.max(0, p.hp / p.maxHp);
-            ctx.fillStyle = ratio > 0.5 ? '#66BB6A' : '#EF5350';
-            roundRect(bx, by, Math.max(0, bw * ratio), bh, 2);
-        }
-    }
-
-    // Proyectiles
-    for (const p of S.projectiles) {
-        if (p.active) drawProjectile(p);
-    }
-
-    // Zombis
-    for (const z of S.zombies) {
-        if (z.alive) drawZombie(z);
-    }
-
-    // Soles
-    for (const s of S.suns) drawSunEntity(s);
-
-    // Partículas
-    for (const p of S.particles) {
-        const alpha = p.life / p.maxLife;
-        ctx.fillStyle = p.color;
-        ctx.globalAlpha = alpha;
-        ctx.beginPath(); ctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI*2); ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-
-    // Notificaciones
-    for (const n of S.notifications) {
-        ctx.globalAlpha = n.life / n.maxLife;
-        ctx.fillStyle = n.color;
-        ctx.font = 'bold 22px Bungee';
-        ctx.textAlign = 'center';
-        ctx.fillText(n.text, n.x, n.y);
-    }
-    ctx.globalAlpha = 1;
-
-    // UI
-    drawUI();
-}
-
-// ============================
-// PANTALLA DE MENÚ
-// ============================
-function drawMenu() {
-    S.menuAnim++;
-    ctx.clearRect(0, 0, W, H);
-
-    // Fondo con gradiente
-    const bg = ctx.createLinearGradient(0, 0, 0, H);
-    bg.addColorStop(0, '#1B5E20');
-    bg.addColorStop(0.5, '#2E7D32');
-    bg.addColorStop(1, '#1a0e05');
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, W, H);
-
-    // Partículas de fondo (hojas)
-    for (let i = 0; i < 20; i++) {
-        const t = S.menuAnim * 0.5 + i * 200;
-        const x = (t * 0.7 + i * 137) % (W + 40) - 20;
-        const y = (t * 0.3 + i * 89) % (H + 40) - 20;
-        const rot = t * 0.02;
-        ctx.save();
-        ctx.translate(x, y);
-        ctx.rotate(rot);
-        ctx.fillStyle = `rgba(76,175,80,${0.15 + Math.sin(i)*0.1})`;
-        ctx.beginPath(); ctx.ellipse(0, 0, 12, 6, 0, 0, Math.PI*2); ctx.fill();
-        ctx.restore();
-    }
-
-    // Girasol animado a la izquierda
-    drawSunflower(140, 280, S.menuAnim, 1.5);
-
-    // Zombi animado a la derecha
-    const fakeZ = { x: 720, y: 270, row: 0, anim: S.menuAnim, flash: 0, eating: false, hp: 100, maxHp: 100, frozen: 0 };
-    ctx.save(); ctx.scale(1.8, 1.8); ctx.translate(-400, -145);
-    drawZombie(fakeZ);
-    ctx.restore();
-
-    // Título
-    ctx.save();
-    const titleBob = Math.sin(S.menuAnim * 0.04) * 5;
-    ctx.translate(W/2, 180 + titleBob);
-
-    ctx.fillStyle = '#1B5E20';
-    ctx.font = 'bold 56px Bungee';
-    ctx.textAlign = 'center';
-    ctx.fillText('PLANTAS', 3, 3);
-    ctx.fillStyle = '#FFD54F';
-    ctx.fillText('PLANTAS', 0, 0);
-
-    ctx.fillStyle = '#3E2723';
-    ctx.font = 'bold 28px Bungee';
-    ctx.fillText('vs', 3, 53);
-    ctx.fillStyle = '#EF5350';
-    ctx.fillText('vs', 0, 50);
-
-    ctx.fillStyle = '#3E2723';
-    ctx.font = 'bold 56px Bungee';
-    ctx.fillText('ZOMBIS', 3, 103);
-    ctx.fillStyle = '#8D9E7C';
-    ctx.fillText('ZOMBIS', 0, 100);
-
-    ctx.restore();
-
-    // Botón de jugar
-    const btnX = W/2 - 120, btnY = 420, btnW = 240, btnH = 60;
-    const pulse = 1 + Math.sin(S.menuAnim * 0.08) * 0.03;
-
-    ctx.save();
-    ctx.translate(W/2, btnY + btnH/2);
-    ctx.scale(pulse, pulse);
-    ctx.translate(-W/2, -(btnY + btnH/2));
-
-    // Sombra
-    ctx.fillStyle = 'rgba(0,0,0,0.3)';
-    ctx.beginPath(); ctx.roundRect(btnX + 3, btnY + 3, btnW, btnH, 12); ctx.fill();
-
-    // Botón
-    const btnGrad = ctx.createLinearGradient(btnX, btnY, btnX, btnY + btnH);
-    btnGrad.addColorStop(0, '#FF6F00');
-    btnGrad.addColorStop(1, '#E65100');
-    ctx.fillStyle = btnGrad;
-    ctx.beginPath(); ctx.roundRect(btnX, btnY, btnW, btnH, 12); ctx.fill();
-
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 28px Bungee';
-    ctx.textAlign = 'center';
-    ctx.fillText('JUGAR', W/2, btnY + 40);
-
-    ctx.restore();
-
-    // Instrucciones
-    ctx.fillStyle = 'rgba(255,255,255,0.5)';
-    ctx.font = '14px Nunito';
-    ctx.textAlign = 'center';
-    ctx.fillText('Selecciona una planta y haz clic en el césped para colocarla', W/2, 520);
-    ctx.fillText('Recoge soles clickeándolos para comprar más plantas', W/2, 542);
-    ctx.fillText('No dejes que los zombis lleguen a tu casa', W/2, 564);
-
-    // Guardar área del botón para clic
-    S.menuBtn = { x: btnX, y: btnY, w: btnW, h: btnH };
-}
-
-// ============================
-// PANTALLA DE GAME OVER
-// ============================
-function drawGameOver() {
-    S.gameOverDelay++;
-    drawGame(); // Dibujar el juego de fondo
-
-    // Overlay rojo
-    const alpha = Math.min(0.75, S.gameOverDelay * 0.02);
-    ctx.fillStyle = `rgba(30,0,0,${alpha})`;
-    ctx.fillRect(0, 0, W, H);
-
-    if (S.gameOverDelay > 30) {
-        // Texto principal
-        const shake = S.gameOverDelay < 50 ? (Math.random()-0.5) * 8 : 0;
-        ctx.save();
-        ctx.translate(shake, 0);
-
-        ctx.fillStyle = '#EF5350';
-        ctx.font = 'bold 44px Bungee';
-        ctx.textAlign = 'center';
-        ctx.fillText('LOS ZOMBIS COMIERON', W/2, 230);
-        ctx.fillText('TU CEREBRO', W/2, 285);
-
-        ctx.fillStyle = '#FFD54F';
-        ctx.font = 'bold 22px Bungee';
-        ctx.fillText('Zombis eliminados: ' + S.score, W/2, 340);
-        ctx.fillText('Oleada alcanzada: ' + S.wave, W/2, 372);
-
-        ctx.restore();
-
-        // Botón de reinicio
-        if (S.gameOverDelay > 60) {
-            const btnX = W/2 - 120, btnY = 410, btnW = 240, btnH = 55;
-            const pulse = 1 + Math.sin(S.frame * 0.08) * 0.02;
-            ctx.save();
-            ctx.translate(W/2, btnY + btnH/2);
-            ctx.scale(pulse, pulse);
-            ctx.translate(-W/2, -(btnY + btnH/2));
-
-            ctx.fillStyle = 'rgba(0,0,0,0.3)';
-            ctx.beginPath(); ctx.roundRect(btnX+3, btnY+3, btnW, btnH, 10); ctx.fill();
-
-            const rGrad = ctx.createLinearGradient(btnX, btnY, btnX, btnY+btnH);
-            rGrad.addColorStop(0, '#4CAF50');
-            rGrad.addColorStop(1, '#2E7D32');
-            ctx.fillStyle = rGrad;
-            ctx.beginPath(); ctx.roundRect(btnX, btnY, btnW, btnH, 10); ctx.fill();
-
-            ctx.fillStyle = '#fff';
-            ctx.font = 'bold 22px Bungee';
-            ctx.textAlign = 'center';
-            ctx.fillText('JUGAR DE NUEVO', W/2, btnY + 37);
-
-            ctx.restore();
-
-            S.restartBtn = { x: btnX, y: btnY, w: btnW, h: btnH };
-        }
-    }
-}
-
-// ============================
-// MANEJO DE INPUT
-// ============================
-canvas.addEventListener('mousemove', (e) => {
-    const pos = getMousePos(e);
-    S.mouseX = pos.x; S.mouseY = pos.y;
-    const g = gridFromPos(pos.x, pos.y);
-    S.hoverRow = g ? g.row : -1;
-    S.hoverCol = g ? g.col : -1;
-
-    // Cursor
-    if (S.screen === 'playing' && (S.selectedPlant || S.shovelMode)) {
-        canvas.style.cursor = 'crosshair';
-    } else if (S.screen === 'playing') {
-        // Verificar si está sobre un sol
-        const overSun = S.suns.find(s => !s.collected && Math.hypot(s.x - pos.x, s.y - pos.y) < 22);
-        canvas.style.cursor = overSun ? 'pointer' : 'default';
-    } else {
-        canvas.style.cursor = 'pointer';
-    }
-});
-
-canvas.addEventListener('click', (e) => {
-    ensureAudio();
-    const pos = getMousePos(e);
-    const mx = pos.x, my = pos.y;
-
-    if (S.screen === 'menu') {
-        const b = S.menuBtn;
-        if (b && mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
-            S.screen = 'playing';
-            resetState();
-            S.screen = 'playing';
-        }
-        return;
-    }
-
-    if (S.screen === 'gameover') {
-        const b = S.restartBtn;
-        if (b && mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
-            resetState();
-            S.screen = 'menu';
-        }
-        return;
-    }
-
-    if (S.screen !== 'playing') return;
-
-    // 1. Recoger soles (prioridad)
-    for (const s of S.suns) {
-        if (!s.collected && Math.hypot(s.x - mx, s.y - my) < 24) {
-            s.collected = true;
-            s.startX = s.x;
-            s.startY = s.y;
-            playSound('sun');
-            return;
-        }
-    }
-
-    // 2. Tarjetas de plantas
-    const cards = [
-        { type: 'sunflower',  x: 160 },
-        { type: 'peashooter', x: 240 },
-        { type: 'wallnut',    x: 320 }
-    ];
-    for (const c of cards) {
-        if (mx >= c.x && mx <= c.x + 68 && my >= 8 && my <= 80) {
-            if (S.selectedPlant === c.type) {
-                S.selectedPlant = null;
-            } else {
-                S.selectedPlant = c.type;
-                S.shovelMode = false;
-            }
-            return;
-        }
-    }
-
-    // 3. Pala
-    if (mx >= 400 && mx <= 452 && my >= 8 && my <= 80) {
-        S.shovelMode = !S.shovelMode;
-        S.selectedPlant = null;
-        return;
-    }
-
-    // 4. Colocar planta o usar pala en el grid
-    const g = gridFromPos(mx, my);
-    if (g) {
-        if (S.shovelMode) {
-            const existing = plantAt(g.row, g.col);
-            if (existing) {
-                const refund = Math.floor(PLANT_DATA[existing.type].cost / 2);
-                S.sun += refund;
-                existing.alive = false;
-                spawnParticles(existing.x + CELL_W/2, existing.y + CELL_H/2, '#8D6E63', 6);
-                addNotif('+' + refund + '☀', existing.x + CELL_W/2, existing.y, '#FFD54F');
-                S.shovelMode = false;
-                playSound('plant');
-            }
-            return;
-        }
-
-        if (S.selectedPlant) {
-            const data = PLANT_DATA[S.selectedPlant];
-            const existing = plantAt(g.row, g.col);
-            if (!existing && S.sun >= data.cost) {
-                S.sun -= data.cost;
-                S.plants.push(new Plant(g.row, g.col, S.selectedPlant));
-                spawnParticles(
-                    GRID_X + g.col * CELL_W + CELL_W/2,
-                    GRID_Y + g.row * CELL_H + CELL_H/2,
-                    '#A5D6A7', 8
-                );
-                playSound('plant');
-            } else if (existing) {
-                addNotif('Casilla ocupada', mx, my - 20, '#EF5350');
-            } else {
-                addNotif('Soles insuficientes', mx, my - 20, '#EF5350');
-            }
-        }
-    }
-});
-
-// Deseleccionar con clic derecho o Escape
-canvas.addEventListener('contextmenu', (e) => {
-    e.preventDefault();
-    S.selectedPlant = null;
-    S.shovelMode = false;
-});
-document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-        S.selectedPlant = null;
-        S.shovelMode = false;
-    }
-});
-
-// Soporte táctil
-canvas.addEventListener('touchstart', (e) => {
-    e.preventDefault();
-    ensureAudio();
-    const touch = e.touches[0];
-    const pos = getMousePos(touch);
-    S.mouseX = pos.x; S.mouseY = pos.y;
-    const g = gridFromPos(pos.x, pos.y);
-    S.hoverRow = g ? g.row : -1;
-    S.hoverCol = g ? g.col : -1;
-    // Simular clic
-    canvas.dispatchEvent(new MouseEvent('click', { clientX: touch.clientX, clientY: touch.clientY }));
-}, { passive: false });
-
-canvas.addEventListener('touchmove', (e) => {
-    e.preventDefault();
-    const touch = e.touches[0];
-    const pos = getMousePos(touch);
-    S.mouseX = pos.x; S.mouseY = pos.y;
-    const g = gridFromPos(pos.x, pos.y);
-    S.hoverRow = g ? g.row : -1;
-    S.hoverCol = g ? g.col : -1;
-}, { passive: false });
-
-// ============================
-// BUCLE PRINCIPAL
-// ============================
-function gameLoop() {
-    if (S.screen === 'menu') {
-        drawMenu();
-    } else if (S.screen === 'playing') {
-        updateGame();
-        drawGame();
-    } else if (S.screen === 'gameover') {
-        S.frame++;
-        drawGameOver();
-    }
-    requestAnimationFrame(gameLoop);
-}
-
-// ============================
-// INICIO
-// ============================
-document.fonts.ready.then(() => {
-    gameLoop();
-});
-</script>
-</body>
-</html>
